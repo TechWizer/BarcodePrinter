@@ -18,7 +18,8 @@ public class SettingsManager {
     private static final String KEY_NET_IP = "net_ip";
     private static final String KEY_NET_PORT = "net_port";
 
-    // Layout & Margin Keys
+    // Layout, Language & Margin Keys
+    private static final String KEY_PRINTER_LANGUAGE = "printer_language"; // "TSPL" or "ZPL"
     private static final String KEY_LABELS_PER_ROW = "labels_per_row";
     private static final String KEY_LABEL_WIDTH = "label_width";
     private static final String KEY_LABEL_HEIGHT = "label_height";
@@ -26,8 +27,8 @@ public class SettingsManager {
     private static final String KEY_H_GAP = "label_h_gap";
     private static final String KEY_DENSITY = "print_density";
     private static final String KEY_SPEED = "print_speed";
-    private static final String KEY_LEFT_X = "left_x";
-    private static final String KEY_TOP_Y = "top_y";
+    private static final String KEY_LEFT_MARGIN_MM = "left_margin_mm";
+    private static final String KEY_TOP_MARGIN_MM = "top_margin_mm";
     private static final String KEY_RIGHT_X = "right_x";
     private static final String KEY_CURRENCY = "currency_symbol";
     private static final String KEY_SHOW_SIZE = "show_size";
@@ -42,6 +43,10 @@ public class SettingsManager {
     private static final String KEY_API_USER = "api_user";
     private static final String KEY_API_PASS = "api_pass";
     private static final String KEY_ODOO_DB = "odoo_db";
+
+    // Branding & White-Label Keys
+    private static final String KEY_CUSTOM_LOGO_PATH = "custom_logo_path";
+    private static final String KEY_APP_TITLE = "app_title";
 
     public static String getPrinterMode() {
         return prefs.get(KEY_PRINTER_MODE, "USB");
@@ -81,6 +86,7 @@ public class SettingsManager {
 
     public static void loadConfig(LabelConfig config) {
         if (config == null) return;
+        config.setPrinterLanguage(prefs.get(KEY_PRINTER_LANGUAGE, config.getPrinterLanguage()));
         config.setLabelsPerRow(prefs.getInt(KEY_LABELS_PER_ROW, config.getLabelsPerRow()));
         config.setLabelWidthMm(prefs.getDouble(KEY_LABEL_WIDTH, config.getLabelWidthMm()));
         config.setLabelHeightMm(prefs.getDouble(KEY_LABEL_HEIGHT, config.getLabelHeightMm()));
@@ -88,8 +94,8 @@ public class SettingsManager {
         config.setHorizontalGapMm(prefs.getDouble(KEY_H_GAP, config.getHorizontalGapMm()));
         config.setDarkness(prefs.getInt(KEY_DENSITY, config.getDarkness()));
         config.setPrintSpeed(prefs.getInt(KEY_SPEED, config.getPrintSpeed()));
-        config.setLeftLabelX(prefs.getInt(KEY_LEFT_X, config.getLeftLabelX()));
-        config.setTopMarginY(prefs.getInt(KEY_TOP_Y, config.getTopMarginY()));
+        config.setLeftMarginMm(prefs.getDouble(KEY_LEFT_MARGIN_MM, config.getLeftMarginMm()));
+        config.setTopMarginMm(prefs.getDouble(KEY_TOP_MARGIN_MM, config.getTopMarginMm()));
         config.setRightLabelX(prefs.getInt(KEY_RIGHT_X, config.getRightLabelX()));
         config.setCurrencySymbol(prefs.get(KEY_CURRENCY, config.getCurrencySymbol()));
         config.setShowSize(prefs.getBoolean(KEY_SHOW_SIZE, config.isShowSize()));
@@ -99,6 +105,7 @@ public class SettingsManager {
 
     public static void saveConfig(LabelConfig config) {
         if (config == null) return;
+        prefs.put(KEY_PRINTER_LANGUAGE, config.getPrinterLanguage());
         prefs.putInt(KEY_LABELS_PER_ROW, config.getLabelsPerRow());
         prefs.putDouble(KEY_LABEL_WIDTH, config.getLabelWidthMm());
         prefs.putDouble(KEY_LABEL_HEIGHT, config.getLabelHeightMm());
@@ -106,8 +113,8 @@ public class SettingsManager {
         prefs.putDouble(KEY_H_GAP, config.getHorizontalGapMm());
         prefs.putInt(KEY_DENSITY, config.getDarkness());
         prefs.putInt(KEY_SPEED, config.getPrintSpeed());
-        prefs.putInt(KEY_LEFT_X, config.getLeftLabelX());
-        prefs.putInt(KEY_TOP_Y, config.getTopMarginY());
+        prefs.putDouble(KEY_LEFT_MARGIN_MM, config.getLeftMarginMm());
+        prefs.putDouble(KEY_TOP_MARGIN_MM, config.getTopMarginMm());
         prefs.putInt(KEY_RIGHT_X, config.getRightLabelX());
         prefs.put(KEY_CURRENCY, config.getCurrencySymbol());
         prefs.putBoolean(KEY_SHOW_SIZE, config.isShowSize());
@@ -170,5 +177,26 @@ public class SettingsManager {
 
     public static void setOdooDb(String db) {
         prefs.put(KEY_ODOO_DB, db != null ? db.trim() : "");
+    }
+
+    // Branding & White-Label Preferences
+    public static String getCustomLogoPath() {
+        return prefs.get(KEY_CUSTOM_LOGO_PATH, "");
+    }
+
+    public static void setCustomLogoPath(String path) {
+        prefs.put(KEY_CUSTOM_LOGO_PATH, path != null ? path.trim() : "");
+    }
+
+    public static String getAppTitle() {
+        return prefs.get(KEY_APP_TITLE, "Winpal Barcode Lable Printer");
+    }
+
+    public static void setAppTitle(String title) {
+        if (title != null && !title.trim().isEmpty()) {
+            prefs.put(KEY_APP_TITLE, title.trim());
+        } else {
+            prefs.put(KEY_APP_TITLE, "Winpal Barcode Lable Printer");
+        }
     }
 }

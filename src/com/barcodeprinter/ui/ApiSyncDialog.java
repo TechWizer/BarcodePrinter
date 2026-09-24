@@ -50,6 +50,9 @@ public class ApiSyncDialog extends JDialog {
     public ApiSyncDialog(Frame parent) {
         super(parent, "Connect & Sync Products from Web / ERP API", true);
         this.parent = parent;
+        if (parent != null && parent.getIconImages() != null && !parent.getIconImages().isEmpty()) {
+            setIconImages(parent.getIconImages());
+        }
         setSize(720, 540);
         setMinimumSize(new Dimension(680, 500));
         setLocationRelativeTo(parent);

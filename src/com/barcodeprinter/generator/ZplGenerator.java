@@ -7,18 +7,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Generates ZPL II (Zebra Programming Language) scripts for Zebra, ZDesigner,
- * Honeywell, and other ZPL-compatible thermal label printers.
- * Matches the perfected retail template layout:
- * - [Barcode + Size] combined group centered horizontally across each sticker
- * - Barcode Digits centered directly beneath barcode bars
- * - Reduced Currency Symbol + Large Bold Price
- * - Product Name centered at bottom (with 2-line wrapping for long titles)
+ * Generates Zebra ZPL II command scripts for thermal barcode printers (Zebra, ZDesigner, Honeywell, etc.).
+ * Supports:
+ * - Standard spacious retail layout (25mm+ height)
+ * - Exact calibrated compact 31mm x 15mm tag layout matching physical printer specifications.
+ * - Hardware Gap / Web tracking (^MNY) and Tear-Off mode (^MMT) to prevent empty label skipping.
  */
 public class ZplGenerator {
 
     /**
-     * Generates a complete ZPL print job script for the given list of products.
+     * Generates a complete ZPL II print job script for the given list of products.
      */
     public static String generatePrintJob(List<Product> products, LabelConfig config) {
         if (products == null || products.isEmpty()) {
@@ -46,14 +44,13 @@ public class ZplGenerator {
         int slotWidthDots = totalWidthDots / n;
         int leftMarginDots = config.getLeftLabelX();
 
-        // Iterate row by row (chunk of N labels)
         for (int i = 0; i < individualLabels.size(); i += n) {
             sb.append("^XA\r\n");
+            sb.append("^MMT\r\n"); // Media Mode: Tear-off
+            sb.append("^MNY\r\n"); // Media Tracking: Gap/Web Sensing (Stops printer skipping empty labels!)
             sb.append(String.format("^PW%d\r\n", totalWidthDots));
             sb.append(String.format("^LL%d\r\n", totalHeightDots));
-            sb.append(String.format("^PR%d,%d\r\n", config.getPrintSpeed(), config.getPrintSpeed()));
-            sb.append(String.format("^MD%d\r\n", config.getDarkness()));
-            sb.append("^LH0,0\r\n\r\n");
+            sb.append("^LS0\r\n\r\n");
 
             for (int col = 0; col < n; col++) {
                 int itemIdx = i + col;
@@ -61,7 +58,7 @@ public class ZplGenerator {
                     Product p = individualLabels.get(itemIdx);
                     int slotStartX = leftMarginDots + col * slotWidthDots;
                     int slotCenterX = leftMarginDots + (int) Math.round((col + 0.5) * slotWidthDots);
-                    appendLabelZpl(sb, p, slotStartX, slotCenterX, slotWidthDots, config, "Col " + (col + 1));
+                    appendLabelZpl(sb, p, slotStartX, slotCenterX, slotWidthDots, totalHeightDots, config, "Col " + (col + 1));
                 }
             }
 
@@ -85,11 +82,11 @@ public class ZplGenerator {
         int leftMarginDots = config.getLeftLabelX();
 
         sb.append("^XA\r\n");
+        sb.append("^MMT\r\n");
+        sb.append("^MNY\r\n");
         sb.append(String.format("^PW%d\r\n", totalWidthDots));
         sb.append(String.format("^LL%d\r\n", totalHeightDots));
-        sb.append(String.format("^PR%d,%d\r\n", config.getPrintSpeed(), config.getPrintSpeed()));
-        sb.append(String.format("^MD%d\r\n", config.getDarkness()));
-        sb.append("^LH0,0\r\n\r\n");
+        sb.append("^LS0\r\n\r\n");
 
         if (rowProducts != null) {
             for (int col = 0; col < Math.min(n, rowProducts.size()); col++) {
@@ -97,7 +94,7 @@ public class ZplGenerator {
                 if (p != null) {
                     int slotStartX = leftMarginDots + col * slotWidthDots;
                     int slotCenterX = leftMarginDots + (int) Math.round((col + 0.5) * slotWidthDots);
-                    appendLabelZpl(sb, p, slotStartX, slotCenterX, slotWidthDots, config, "Col " + (col + 1));
+                    appendLabelZpl(sb, p, slotStartX, slotCenterX, slotWidthDots, totalHeightDots, config, "Col " + (col + 1));
                 }
             }
         }
@@ -107,8 +104,17 @@ public class ZplGenerator {
         return sb.toString();
     }
 
-    private static void appendLabelZpl(StringBuilder sb, Product p, int slotStartX, int slotCenterX, int slotWidthDots, LabelConfig config, String side) {
-        sb.append("^FX --- ").append(side).append(" Label: ").append(sanitizeComment(p.getName())).append(" ---^\r\n");
+    private static void appendLabelZpl(StringBuilder sb, Product p, int slotStartX, int slotCenterX, int slotWidthDots, int totalHeightDots, LabelConfig config, String side) {
+        // Compact mode for 31mm x 15mm small tags (Height <= 18mm)
+        if (config.getLabelHeightMm() <= 18.0) {
+            appendCompactLabelZpl(sb, p, slotStartX, slotWidthDots, totalHeightDots, config, side);
+            return;
+        }
+
+        sb.append("^FX --- ").append(side).append(" Label: ").append(sanitizeComment(p.getName())).append(" ---\r\n");
+        sb.append(String.format("^PR%d,%d\r\n", config.getPrintSpeed(), config.getPrintSpeed()));
+        sb.append(String.format("^MD%d\r\n", config.getDarkness()));
+        sb.append("^LH0,0\r\n\r\n");
 
         int bcY = Math.max(24, config.getTopMarginY() + 4);
         int barcodeHeight = Math.min(42, config.getBarcodeHeight());
@@ -120,14 +126,13 @@ public class ZplGenerator {
             approxBcWidth = estimateBarcodeWidthDots(barcode, config.getBarcodeNarrow());
         }
 
-        String sizeStr = "";
+        String sizeStr = (config.isShowSize() && p.getSize() != null) ? sanitizeText(p.getSize().trim()) : "";
+        boolean hasSize = !sizeStr.isEmpty();
         int sizeWidth = 0;
-        int gapBetweenBcAndSize = 20;
-        boolean hasSize = config.isShowSize() && p.getSize() != null && !p.getSize().trim().isEmpty();
+        int gapBetweenBcAndSize = 12;
+
         if (hasSize) {
-            sizeStr = sanitizeText(p.getSize().trim());
-            int sizePitch = 15; // ZPL ^A0N,22,15
-            sizeWidth = sizeStr.length() * sizePitch;
+            sizeWidth = sizeStr.length() * 18 + 6;
         }
 
         int totalGroupWidth = approxBcWidth + (hasSize ? (gapBetweenBcAndSize + sizeWidth) : 0);
@@ -192,7 +197,7 @@ public class ZplGenerator {
             sb.append(String.format("^FO%d,%d^A0N,32,24^FD%s^FS\r\n",
                     amtX, curY, amtStr));
 
-            curY += 36; // Generous extra gap between price and product name
+            curY += 36;
         }
 
         // 4. Centered Product Title & Code (Regular Clean Font, supports automatic 2-line wrapping)
@@ -215,6 +220,95 @@ public class ZplGenerator {
                         lineX, curY, line));
                 curY += 22;
             }
+        }
+    }
+
+    /**
+     * Exact 3-zone calibrated compact 31mm x 15mm tag layout:
+     * - Row 1 (Top): Barcode on Left (^FO15,10) | Size on Top-Right (^FT190,28)
+     * - Row 2 (Middle): Barcode Digits on Left (^FT15,58) | Full Price [AED 10.00] on Right (^FT{x},58)
+     * - Row 3 (Bottom): Product Code & Name in BOLD spanning across bottom (^FT15,98 ^A0N,18,14)
+     */
+    private static void appendCompactLabelZpl(StringBuilder sb, Product p, int slotStartX, int slotWidthDots, int totalHeightDots, LabelConfig config, String side) {
+        int leftX = slotStartX + 15;
+        int rightMarginX = slotStartX + Math.max(225, slotWidthDots - 15);
+
+        String barcode = sanitizeText(p.getBarcode());
+        String sizeStr = (config.isShowSize() && p.getSize() != null) ? sanitizeText(p.getSize().trim()) : "";
+        String priceStr = (config.isShowPrice() && p.getPrice() != null) ? sanitizeText(p.getPrice().trim()) : "";
+        String currConfig = config.getCurrencySymbol() != null ? config.getCurrencySymbol().trim() : "";
+        String currStr = sanitizeText(currConfig);
+        String amtStr = priceStr;
+
+        if (!priceStr.isEmpty()) {
+            String[] priceParts = TsplGenerator.splitCurrencyAndAmount(priceStr, currConfig);
+            if (!priceParts[0].isEmpty()) {
+                currStr = sanitizeText(priceParts[0]);
+            }
+            amtStr = sanitizeText(priceParts[1].isEmpty() ? priceStr : priceParts[1]);
+        }
+
+        // Full Price String with Currency (e.g. "AED 10.00" or "Rs. 2,450.00")
+        String fullPrice = "";
+        if (!amtStr.isEmpty()) {
+            fullPrice = currStr.isEmpty() ? amtStr : (currStr + " " + amtStr);
+        }
+
+        String title = "";
+        String code = p.getProductCode() != null ? p.getProductCode().trim() : "";
+        String name = p.getName() != null ? p.getName().trim() : "";
+        if (!code.isEmpty() && !name.isEmpty()) {
+            title = code + " - " + name;
+        } else if (!code.isEmpty()) {
+            title = code;
+        } else {
+            title = name;
+        }
+        title = sanitizeText(title);
+
+        // 1. Barcode (Top Left, Y=10, Height=28)
+        int bcH = Math.min(28, Math.max(20, config.getBarcodeHeight()));
+        if (!barcode.isEmpty()) {
+            sb.append(String.format("^FO%d,10\r\n", leftX));
+            sb.append(String.format("^BY1,30,%d\r\n", bcH));
+            sb.append(String.format("^BCN,%d,N,N,N\r\n", bcH));
+            sb.append(String.format("^FD%s^FS\r\n\r\n", barcode));
+        }
+
+        // 2. Size (Top Right, aligned with Barcode, Y=28)
+        if (!sizeStr.isEmpty()) {
+            int sizeWidth = sizeStr.length() * 15;
+            int sizeX = Math.max(slotStartX + 170, rightMarginX - sizeWidth);
+            sb.append(String.format("^FT%d,28\r\n", sizeX));
+            sb.append("^A0N,22,18\r\n");
+            sb.append(String.format("^FD%s^FS\r\n\r\n", sizeStr));
+        }
+
+        // 3. Barcode Digits (Middle Left, directly under barcode, Y=58)
+        if (config.isShowBarcodeText() && !barcode.isEmpty()) {
+            sb.append(String.format("^FT%d,58\r\n", leftX));
+            sb.append("^A0N,15,12\r\n");
+            sb.append(String.format("^FD%s^FS\r\n\r\n", barcode));
+        }
+
+        // 4. Combined Price with Currency (Middle Right, under Size, Y=58)
+        if (!fullPrice.isEmpty()) {
+            int priceWidth = fullPrice.length() * 12;
+            int priceX = Math.max(slotStartX + 115, rightMarginX - priceWidth);
+            sb.append(String.format("^FT%d,58\r\n", priceX));
+            sb.append("^A0N,22,18\r\n");
+            sb.append(String.format("^FD%s^FS\r\n\r\n", fullPrice));
+        }
+
+        // 5. Product Title / Code (Bottom Row - Bold font ^A0N,18,14 across full width, Y=98)
+        if (!title.isEmpty()) {
+            int maxChars = Math.max(16, (slotWidthDots - 25) / 11);
+            if (title.length() > maxChars) {
+                title = title.substring(0, maxChars - 2) + "..";
+            }
+            sb.append(String.format("^FT%d,98\r\n", leftX));
+            sb.append("^A0N,18,14\r\n");
+            sb.append(String.format("^FD%s^FS\r\n\r\n", title));
         }
     }
 

@@ -40,19 +40,31 @@ public class TsplGenerator {
 
         StringBuilder sb = new StringBuilder();
 
-        // 1. Initial Setup Commands
-        sb.append(String.format("SIZE %.0f mm, %.0f mm\r\n", config.getLabelWidthMm(), config.getLabelHeightMm()));
-        sb.append(String.format("GAP %.0f mm, 0 mm\r\n", config.getGapMm()));
+        // 1. TSPL Initialization (Dual Mode: Optical Sensor vs Continuous Pitch)
+        if (config.getGapMm() > 0) {
+            sb.append(String.format(java.util.Locale.US, "SIZE %.0f mm, %.1f mm\r\n", config.getLabelWidthMm(), config.getLabelHeightMm()));
+            sb.append(String.format(java.util.Locale.US, "GAP %.1f mm, 0 mm\r\n", config.getGapMm()));
+        } else {
+            // Continuous Fixed-Distance Pitch Mode:
+            // Feeds exact physical row distance (Label Height + Gap Pitch, e.g. 25.0mm + 3.45mm = 28.45mm)
+            double pitch = config.getLabelHeightMm() + 3.45;
+            sb.append(String.format(java.util.Locale.US, "SIZE %.0f mm, %.2f mm\r\n", config.getLabelWidthMm(), pitch));
+            sb.append("GAP 0 mm, 0 mm\r\n");
+        }
         sb.append("SPEED ").append(config.getPrintSpeed()).append("\r\n");
         sb.append("DENSITY ").append(config.getDarkness()).append("\r\n");
         sb.append("DIRECTION 1\r\n");
         sb.append("REFERENCE 0,0\r\n");
-        sb.append("OFFSET 0 mm\r\n\r\n");
+        sb.append("OFFSET 0 mm\r\n");
+        sb.append("SET RIBBON ON\r\n");
+        sb.append("SET TEAR ON\r\n\r\n");
 
         int n = Math.max(1, config.getLabelsPerRow());
         int dotsPerMm = (int) Math.round(config.getDpi() / 25.4); // 8 dots/mm for 203 DPI
-        int totalWidthDots = (int) Math.round(config.getLabelWidthMm() * dotsPerMm);
-        int slotWidthDots = totalWidthDots / n;
+        double singleLabelWidthMm = (n == 2) ? 50.0 : (config.getLabelWidthMm() / n);
+        double hGapMm = config.getHorizontalGapMm();
+        int singleLabelWidthDots = (int) Math.round(singleLabelWidthMm * dotsPerMm);
+        int hGapDots = (int) Math.round(hGapMm * dotsPerMm);
         int leftMarginDots = config.getLeftLabelX();
 
         // 2. Iterate row by row (chunk of N labels)
@@ -64,9 +76,9 @@ public class TsplGenerator {
                 int itemIdx = i + col;
                 if (itemIdx < individualLabels.size()) {
                     Product p = individualLabels.get(itemIdx);
-                    int slotStartX = leftMarginDots + col * slotWidthDots;
-                    int slotCenterX = leftMarginDots + (int) Math.round((col + 0.5) * slotWidthDots);
-                    appendLabelCommands(sb, p, slotStartX, slotCenterX, slotWidthDots, config, "Col " + (col + 1));
+                    int slotStartX = leftMarginDots + col * (singleLabelWidthDots + hGapDots);
+                    int slotCenterX = slotStartX + (singleLabelWidthDots / 2);
+                    appendLabelCommands(sb, p, slotStartX, slotCenterX, singleLabelWidthDots, config, "Col " + (col + 1));
                 }
             }
 
@@ -81,27 +93,38 @@ public class TsplGenerator {
      */
     public static String generateTestRow(List<Product> rowProducts, LabelConfig config) {
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("SIZE %.0f mm, %.0f mm\r\n", config.getLabelWidthMm(), config.getLabelHeightMm()));
-        sb.append(String.format("GAP %.0f mm, 0 mm\r\n", config.getGapMm()));
+        if (config.getGapMm() > 0) {
+            sb.append(String.format(java.util.Locale.US, "SIZE %.0f mm, %.1f mm\r\n", config.getLabelWidthMm(), config.getLabelHeightMm()));
+            sb.append(String.format(java.util.Locale.US, "GAP %.1f mm, 0 mm\r\n", config.getGapMm()));
+        } else {
+            double pitch = config.getLabelHeightMm() + 3.45;
+            sb.append(String.format(java.util.Locale.US, "SIZE %.0f mm, %.2f mm\r\n", config.getLabelWidthMm(), pitch));
+            sb.append("GAP 0 mm, 0 mm\r\n");
+        }
         sb.append("SPEED ").append(config.getPrintSpeed()).append("\r\n");
         sb.append("DENSITY ").append(config.getDarkness()).append("\r\n");
         sb.append("DIRECTION 1\r\n");
         sb.append("REFERENCE 0,0\r\n");
+        sb.append("OFFSET 0 mm\r\n");
+        sb.append("SET RIBBON ON\r\n");
+        sb.append("SET TEAR ON\r\n");
         sb.append("CLS\r\n");
 
         int n = Math.max(1, config.getLabelsPerRow());
         int dotsPerMm = (int) Math.round(config.getDpi() / 25.4);
-        int totalWidthDots = (int) Math.round(config.getLabelWidthMm() * dotsPerMm);
-        int slotWidthDots = totalWidthDots / n;
+        double singleLabelWidthMm = (n == 2) ? 50.0 : (config.getLabelWidthMm() / n);
+        double hGapMm = config.getHorizontalGapMm();
+        int singleLabelWidthDots = (int) Math.round(singleLabelWidthMm * dotsPerMm);
+        int hGapDots = (int) Math.round(hGapMm * dotsPerMm);
         int leftMarginDots = config.getLeftLabelX();
 
         if (rowProducts != null) {
             for (int col = 0; col < Math.min(n, rowProducts.size()); col++) {
                 Product p = rowProducts.get(col);
                 if (p != null) {
-                    int slotStartX = leftMarginDots + col * slotWidthDots;
-                    int slotCenterX = leftMarginDots + (int) Math.round((col + 0.5) * slotWidthDots);
-                    appendLabelCommands(sb, p, slotStartX, slotCenterX, slotWidthDots, config, "Col " + (col + 1));
+                    int slotStartX = leftMarginDots + col * (singleLabelWidthDots + hGapDots);
+                    int slotCenterX = slotStartX + (singleLabelWidthDots / 2);
+                    appendLabelCommands(sb, p, slotStartX, slotCenterX, singleLabelWidthDots, config, "Col " + (col + 1));
                 }
             }
         }
@@ -113,8 +136,8 @@ public class TsplGenerator {
     private static void appendLabelCommands(StringBuilder sb, Product p, int slotStartX, int slotCenterX, int slotWidthDots, LabelConfig config, String side) {
         sb.append("; --- ").append(side).append(" Label: ").append(sanitizeComment(p.getName())).append(" ---\r\n");
 
-        int bcY = Math.max(24, config.getTopMarginY() + 4);
-        int barcodeHeight = Math.min(42, config.getBarcodeHeight());
+        int bcY = config.getTopMarginY() + 8;
+        int barcodeHeight = Math.min(36, config.getBarcodeHeight());
 
         // 1. Calculate Combined Width of [ Barcode + Size ] to center the entire group
         String barcode = sanitizeText(p.getBarcode());
@@ -138,7 +161,7 @@ public class TsplGenerator {
         int bcX = groupStartX;
 
         // Output Barcode Graphic
-        int bcNumberY = bcY + barcodeHeight + 4;
+        int bcNumberY = bcY + barcodeHeight + 2;
         if (!barcode.isEmpty()) {
             sb.append(String.format("BARCODE %d, %d, \"%s\", %d, 0, 0, %d, %d, \"%s\"\r\n",
                     bcX, bcY, config.getBarcodeType(),
@@ -166,7 +189,7 @@ public class TsplGenerator {
         }
 
         // Expanded gap after barcode numbers before Price
-        int curY = (config.isShowBarcodeText() && !barcode.isEmpty()) ? (bcNumberY + 28) : (bcY + barcodeHeight + 20);
+        int curY = (config.isShowBarcodeText() && !barcode.isEmpty()) ? (bcNumberY + 28) : (bcY + barcodeHeight + 22);
 
         // 3. Price: Reduced Currency Symbol (Font 2) + Large Bold Numeric Amount (Font 4)
         if (config.isShowPrice() && p.getPrice() != null && !p.getPrice().trim().isEmpty()) {
@@ -198,7 +221,7 @@ public class TsplGenerator {
             sb.append(String.format("TEXT %d, %d, \"4\", 0, 1, 1, \"%s\"\r\n",
                     amtX + 1, curY, amtStr));
 
-            curY += 36; // Generous extra gap between price and product name
+            curY += 36; // Generous clear gap between price and product name
         }
 
         // 4. Centered Product Title & Code (Regular Clean Font 2, supports automatic 2-line wrapping)

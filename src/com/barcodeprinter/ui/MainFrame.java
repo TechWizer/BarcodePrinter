@@ -10,6 +10,9 @@ import com.barcodeprinter.service.RawPrintService;
 import com.barcodeprinter.util.SettingsManager;
 import com.barcodeprinter.util.TemplateGenerator;
 
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
+import java.net.URL;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -38,6 +41,8 @@ public class MainFrame extends JFrame {
     private final LabelConfig config = new LabelConfig();
     private boolean isUpdatingTable = false;
     private boolean isUpdatingPrinters = false;
+    private TrayIcon trayIcon;
+    private BufferedImage loadedAppImage = null;
 
     // UI Components
     private JTable productTable;
@@ -45,6 +50,8 @@ public class MainFrame extends JFrame {
     private LabelPreviewPanel previewPanel;
     private JTabbedPane rightTabbedPane;
     private JTextArea tsplTextArea;
+    private ModernButton copyScriptBtn;
+    private ModernButton saveScriptBtn;
     private JLabel statusLabel;
     private JLabel statsLabel;
 
@@ -84,9 +91,16 @@ public class MainFrame extends JFrame {
     private JCheckBox showPriceChk;
     private JCheckBox showBarcodeTextChk;
 
+    // Branding & White-Label Components
+    private JLabel toolbarLogoLabel;
+    private JLabel brandingLogoPreview;
+    private JTextField appTitleField;
+
     public MainFrame() {
         // Set top bar name
         setTitle("Winpal Barcode Lable Printer");
+        loadAppIcons();
+        initSystemTray();
         setSize(1280, 800);
         setMinimumSize(new Dimension(1050, 680));
         setLocationRelativeTo(null);
@@ -145,6 +159,18 @@ public class MainFrame extends JFrame {
                 BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(220, 225, 230)),
                 new EmptyBorder(8, 12, 8, 12)
         ));
+
+        // App Brand Logo (Prominent Header Display)
+        toolbarLogoLabel = new JLabel();
+        toolbarLogoLabel.setBorder(new EmptyBorder(0, 2, 0, 14));
+        toolbarLogoLabel.setToolTipText("Client & Store Branding Logo");
+        if (loadedAppImage != null) {
+            int logoH = 32;
+            int logoW = Math.max(1, (int) Math.round((double) loadedAppImage.getWidth() / loadedAppImage.getHeight() * logoH));
+            Image scaledLogo = loadedAppImage.getScaledInstance(logoW, logoH, Image.SCALE_SMOOTH);
+            toolbarLogoLabel.setIcon(new ImageIcon(scaledLogo));
+        }
+        toolBar.add(toolbarLogoLabel);
 
         // Import Button (Royal Blue)
         ModernButton importBtn = new ModernButton("Import Excel / CSV", new Color(29, 78, 216), Color.WHITE);
@@ -334,7 +360,7 @@ public class MainFrame extends JFrame {
 
         String tabTitle = getTabPreviewTitle();
         tabbedPane.addTab(tabTitle, createPreviewTab());
-        tabbedPane.addTab("TSPL Script Viewer", createTsplScriptTab());
+        tabbedPane.addTab(getScriptTabTitle(), createTsplScriptTab());
         tabbedPane.addTab("Printer & Label Settings", createSettingsTab());
 
         return tabbedPane;
@@ -438,24 +464,24 @@ public class MainFrame extends JFrame {
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actions.setOpaque(false);
 
-        ModernButton copyBtn = new ModernButton("Copy TSPL Code", new Color(241, 245, 249), new Color(30, 41, 59), new Color(203, 213, 225));
-        copyBtn.addActionListener(new ActionListener() {
+        copyScriptBtn = new ModernButton(config.isZpl() ? "Copy ZPL Code" : "Copy TSPL Code", new Color(241, 245, 249), new Color(30, 41, 59), new Color(203, 213, 225));
+        copyScriptBtn.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 StringSelection sel = new StringSelection(tsplTextArea.getText());
                 Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
-                JOptionPane.showMessageDialog(MainFrame.this, "TSPL commands copied to clipboard!", "Copied", JOptionPane.INFORMATION_MESSAGE);
+                JOptionPane.showMessageDialog(MainFrame.this, (config.isZpl() ? "ZPL commands" : "TSPL commands") + " copied to clipboard!", "Copied", JOptionPane.INFORMATION_MESSAGE);
             }
         });
 
-        ModernButton saveBtn = new ModernButton("Export to .txt / .tspl", new Color(241, 245, 249), new Color(30, 41, 59), new Color(203, 213, 225));
-        saveBtn.addActionListener(new ActionListener() {
+        saveScriptBtn = new ModernButton(config.isZpl() ? "Export to .txt / .zpl" : "Export to .txt / .tspl", new Color(241, 245, 249), new Color(30, 41, 59), new Color(203, 213, 225));
+        saveScriptBtn.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 onExportTsplFile();
             }
         });
 
-        actions.add(copyBtn);
-        actions.add(saveBtn);
+        actions.add(copyScriptBtn);
+        actions.add(saveScriptBtn);
         panel.add(actions, BorderLayout.SOUTH);
 
         return panel;
@@ -509,6 +535,10 @@ public class MainFrame extends JFrame {
         cmbLanguage.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 syncConfigFromUI();
+                if (previewPanel != null) previewPanel.setConfig(config);
+                updatePreview();
+                updateTsplScript();
+                updateStats();
             }
         });
 
@@ -535,6 +565,21 @@ public class MainFrame extends JFrame {
         ipPortBox.add(defaultNetPortField);
         printerSec.add(ipPortBox);
 
+        ModernButton btnCalibrate = new ModernButton("⚡ Auto-Calibrate Gap Sensor", new Color(13, 148, 136), new Color(15, 118, 110));
+        btnCalibrate.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        btnCalibrate.setPreferredSize(new Dimension(210, 32));
+        btnCalibrate.setToolTipText("Sends hardware auto-calibration command to align the optical gap sensor and clear red lights.");
+        btnCalibrate.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                onCalibrateSensor();
+            }
+        });
+
+        JPanel calibBox = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 4));
+        calibBox.setOpaque(false);
+        calibBox.add(btnCalibrate);
+
+        contentPanel.add(calibBox);
         contentPanel.add(printerSec);
         contentPanel.add(Box.createVerticalStrut(12));
 
@@ -551,6 +596,7 @@ public class MainFrame extends JFrame {
         // Presets
         String[] presets = {
                 "-- Select Standard Preset --",
+                "1-Up Compact Tag (31mm x 15mm) - ZPL",
                 "1-Up Single Label (50mm x 25mm)",
                 "1-Up Single Shipping Label (100mm x 50mm)",
                 "2-Up Dual Labels (104mm x 25mm) - Winpal Default",
@@ -582,13 +628,13 @@ public class MainFrame extends JFrame {
         });
 
         widthSpinner = new JSpinner(new SpinnerNumberModel(config.getLabelWidthMm(), 20.0, 150.0, 1.0));
-        heightSpinner = new JSpinner(new SpinnerNumberModel(config.getLabelHeightMm(), 10.0, 150.0, 1.0));
-        gapSpinner = new JSpinner(new SpinnerNumberModel(config.getGapMm(), 0.0, 10.0, 0.5));
+        heightSpinner = new JSpinner(new SpinnerNumberModel(config.getLabelHeightMm(), 10.0, 150.0, 0.1));
+        gapSpinner = new JSpinner(new SpinnerNumberModel(config.getGapMm(), 0.0, 10.0, 0.1));
         hGapSpinner = new JSpinner(new SpinnerNumberModel(config.getHorizontalGapMm(), 0.0, 10.0, 0.5));
         densitySpinner = new JSpinner(new SpinnerNumberModel(config.getDarkness(), 1, 15, 1));
         speedSpinner = new JSpinner(new SpinnerNumberModel(config.getPrintSpeed(), 1, 8, 1));
-        leftXSpinner = new JSpinner(new SpinnerNumberModel(config.getLeftLabelX(), 0, 150, 2));
-        topYSpinner = new JSpinner(new SpinnerNumberModel(config.getTopMarginY(), 0, 150, 2));
+        leftXSpinner = new JSpinner(new SpinnerNumberModel(config.getLeftMarginMm(), 0.0, 50.0, 0.5));
+        topYSpinner = new JSpinner(new SpinnerNumberModel(config.getTopMarginMm(), 0.0, 30.0, 0.5));
         currencyField = new JTextField(config.getCurrencySymbol());
 
         showSizeChk = new JCheckBox("Include Size in Label Header (value only, e.g. M)", config.isShowSize());
@@ -652,10 +698,10 @@ public class MainFrame extends JFrame {
         layoutSec.add(new JLabel("Print Speed (inches/sec):"));
         layoutSec.add(speedSpinner);
 
-        layoutSec.add(new JLabel("Left Margin Offset (dots):"));
+        layoutSec.add(new JLabel("Left Margin Offset (mm):"));
         layoutSec.add(leftXSpinner);
 
-        layoutSec.add(new JLabel("Top Margin Offset (dots):"));
+        layoutSec.add(new JLabel("Top Margin Offset (mm):"));
         layoutSec.add(topYSpinner);
 
         layoutSec.add(new JLabel("Currency Symbol:"));
@@ -667,6 +713,69 @@ public class MainFrame extends JFrame {
         layoutSec.add(new JLabel(""));
 
         contentPanel.add(layoutSec);
+
+        // Section 3: Store & Client Branding (White-Label Customization)
+        JPanel brandingSec = new JPanel(new BorderLayout(12, 10));
+        brandingSec.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(new Color(203, 213, 225)),
+                " Store & Client Branding (White-Label Customization) ",
+                TitledBorder.LEFT, TitledBorder.TOP,
+                new Font("Segoe UI", Font.BOLD, 12), new Color(30, 41, 59)
+        ));
+        brandingSec.setOpaque(false);
+
+        JPanel brandingForm = new JPanel(new GridLayout(0, 2, 10, 8));
+        brandingForm.setOpaque(false);
+
+        appTitleField = new JTextField(SettingsManager.getAppTitle());
+        brandingForm.add(new JLabel("Application / Business Name:"));
+        brandingForm.add(appTitleField);
+
+        JPanel logoRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 4));
+        logoRow.setOpaque(false);
+
+        brandingLogoPreview = new JLabel();
+        brandingLogoPreview.setPreferredSize(new Dimension(110, 42));
+        brandingLogoPreview.setHorizontalAlignment(JLabel.CENTER);
+        brandingLogoPreview.setBorder(BorderFactory.createLineBorder(new Color(220, 225, 230), 1));
+        brandingLogoPreview.setBackground(new Color(248, 250, 252));
+        brandingLogoPreview.setOpaque(true);
+
+        if (loadedAppImage != null) {
+            int prevH = 36;
+            int prevW = Math.max(1, (int) Math.round((double) loadedAppImage.getWidth() / loadedAppImage.getHeight() * prevH));
+            Image prevScaled = loadedAppImage.getScaledInstance(prevW, prevH, Image.SCALE_SMOOTH);
+            brandingLogoPreview.setIcon(new ImageIcon(prevScaled));
+        }
+
+        ModernButton uploadLogoBtn = new ModernButton("📁 Upload Custom Logo", new Color(14, 116, 144), Color.WHITE);
+        uploadLogoBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        uploadLogoBtn.setPreferredSize(new Dimension(180, 32));
+        uploadLogoBtn.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                onUploadCustomLogo();
+            }
+        });
+
+        ModernButton resetLogoBtn = new ModernButton("🔄 Reset Default Logo", new Color(241, 245, 249), new Color(71, 85, 105), new Color(203, 213, 225));
+        resetLogoBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        resetLogoBtn.setPreferredSize(new Dimension(170, 32));
+        resetLogoBtn.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                onResetDefaultLogo();
+            }
+        });
+
+        logoRow.add(new JLabel("Active Logo:"));
+        logoRow.add(brandingLogoPreview);
+        logoRow.add(uploadLogoBtn);
+        logoRow.add(resetLogoBtn);
+
+        brandingSec.add(brandingForm, BorderLayout.NORTH);
+        brandingSec.add(logoRow, BorderLayout.CENTER);
+
+        contentPanel.add(Box.createVerticalStrut(12));
+        contentPanel.add(brandingSec);
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(null);
@@ -688,41 +797,51 @@ public class MainFrame extends JFrame {
 
     private void applyPreset(int index) {
         if (index == 1) {
+            // 1-Up Compact Tag 31x15mm - ZPL
+            labelsPerRowCombo.setSelectedIndex(0); // 1
+            widthSpinner.setValue(31.0);
+            heightSpinner.setValue(15.0);
+            gapSpinner.setValue(2.0);
+            hGapSpinner.setValue(0.0);
+            leftXSpinner.setValue(0.0);
+            topYSpinner.setValue(0.0);
+            cmbLanguage.setSelectedIndex(1); // ZPL
+        } else if (index == 2) {
             // 1-Up Single 50x25mm
             labelsPerRowCombo.setSelectedIndex(0); // 1
             widthSpinner.setValue(50.0);
             heightSpinner.setValue(25.0);
-            gapSpinner.setValue(2.0);
+            gapSpinner.setValue(3.0);
             hGapSpinner.setValue(0.0);
-            leftXSpinner.setValue(0);
-            topYSpinner.setValue(28);
-        } else if (index == 2) {
+            leftXSpinner.setValue(2.0);
+            topYSpinner.setValue(2.0);
+        } else if (index == 3) {
             // 1-Up Single Shipping 100x50mm
             labelsPerRowCombo.setSelectedIndex(0); // 1
             widthSpinner.setValue(100.0);
             heightSpinner.setValue(50.0);
-            gapSpinner.setValue(2.0);
+            gapSpinner.setValue(3.0);
             hGapSpinner.setValue(0.0);
-            leftXSpinner.setValue(0);
-            topYSpinner.setValue(28);
-        } else if (index == 3) {
+            leftXSpinner.setValue(4.0);
+            topYSpinner.setValue(3.0);
+        } else if (index == 4) {
             // 2-Up Dual 104x25mm
             labelsPerRowCombo.setSelectedIndex(1); // 2
             widthSpinner.setValue(104.0);
             heightSpinner.setValue(25.0);
-            gapSpinner.setValue(2.0);
-            hGapSpinner.setValue(2.5);
-            leftXSpinner.setValue(0);
-            topYSpinner.setValue(28);
-        } else if (index == 4) {
+            gapSpinner.setValue(3.0);
+            hGapSpinner.setValue(2.0);
+            leftXSpinner.setValue(7.25);
+            topYSpinner.setValue(2.0);
+        } else if (index == 5) {
             // 3-Up Triple 104x25mm
             labelsPerRowCombo.setSelectedIndex(2); // 3
             widthSpinner.setValue(104.0);
             heightSpinner.setValue(25.0);
-            gapSpinner.setValue(2.0);
+            gapSpinner.setValue(3.0);
             hGapSpinner.setValue(2.0);
-            leftXSpinner.setValue(0);
-            topYSpinner.setValue(28);
+            leftXSpinner.setValue(3.0);
+            topYSpinner.setValue(2.0);
         }
     }
 
@@ -747,23 +866,6 @@ public class MainFrame extends JFrame {
         bg.add(netRadio);
 
         printerCombo = new JComboBox<String>();
-        printerCombo.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                String sel = (String) printerCombo.getSelectedItem();
-                if (sel != null && cmbLanguage != null) {
-                    String lower = sel.toLowerCase();
-                    if (lower.contains("zdesigner") || lower.contains("zebra") || lower.contains("gk888") || lower.contains("zd888") || lower.contains("tlp") || lower.contains("gx")) {
-                        if (cmbLanguage.getSelectedIndex() != 1) {
-                            cmbLanguage.setSelectedIndex(1);
-                        }
-                    } else if (lower.contains("winpal") || lower.contains("4barcode") || lower.contains("tsc") || lower.contains("xprinter") || lower.contains("gprinter")) {
-                        if (cmbLanguage.getSelectedIndex() != 0) {
-                            cmbLanguage.setSelectedIndex(0);
-                        }
-                    }
-                }
-            }
-        });
         printerCombo.setPreferredSize(new Dimension(240, 30));
         printerCombo.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
@@ -1037,15 +1139,18 @@ public class MainFrame extends JFrame {
     }
 
     private void syncConfigFromUI() {
+        if (cmbLanguage != null) {
+            config.setPrinterLanguage(cmbLanguage.getSelectedIndex() == 1 ? "ZPL" : "TSPL");
+        }
         if (labelsPerRowCombo != null) config.setLabelsPerRow(labelsPerRowCombo.getSelectedIndex() + 1);
-        if (widthSpinner != null) config.setLabelWidthMm((Double) widthSpinner.getValue());
-        if (heightSpinner != null) config.setLabelHeightMm((Double) heightSpinner.getValue());
-        if (gapSpinner != null) config.setGapMm((Double) gapSpinner.getValue());
-        if (hGapSpinner != null) config.setHorizontalGapMm((Double) hGapSpinner.getValue());
-        if (densitySpinner != null) config.setDarkness((Integer) densitySpinner.getValue());
-        if (speedSpinner != null) config.setPrintSpeed((Integer) speedSpinner.getValue());
-        if (leftXSpinner != null) config.setLeftLabelX((Integer) leftXSpinner.getValue());
-        if (topYSpinner != null) config.setTopMarginY((Integer) topYSpinner.getValue());
+        if (widthSpinner != null) config.setLabelWidthMm(((Number) widthSpinner.getValue()).doubleValue());
+        if (heightSpinner != null) config.setLabelHeightMm(((Number) heightSpinner.getValue()).doubleValue());
+        if (gapSpinner != null) config.setGapMm(((Number) gapSpinner.getValue()).doubleValue());
+        if (hGapSpinner != null) config.setHorizontalGapMm(((Number) hGapSpinner.getValue()).doubleValue());
+        if (densitySpinner != null) config.setDarkness(((Number) densitySpinner.getValue()).intValue());
+        if (speedSpinner != null) config.setPrintSpeed(((Number) speedSpinner.getValue()).intValue());
+        if (leftXSpinner != null) config.setLeftMarginMm(((Number) leftXSpinner.getValue()).doubleValue());
+        if (topYSpinner != null) config.setTopMarginMm(((Number) topYSpinner.getValue()).doubleValue());
         if (currencyField != null) config.setCurrencySymbol(currencyField.getText().trim());
         if (showSizeChk != null) config.setShowSize(showSizeChk.isSelected());
         if (showPriceChk != null) config.setShowPrice(showPriceChk.isSelected());
@@ -1056,6 +1161,12 @@ public class MainFrame extends JFrame {
         // 1. Sync from UI inputs
         syncConfigFromUI();
         SettingsManager.saveConfig(config);
+
+        // Save Business Title
+        if (appTitleField != null) {
+            SettingsManager.setAppTitle(appTitleField.getText().trim());
+            setTitle(SettingsManager.getAppTitle());
+        }
 
         // 2. Save Default Printer Settings
         boolean isUsb = defaultUsbRadio.isSelected();
@@ -1213,12 +1324,26 @@ public class MainFrame extends JFrame {
         nextRowBtn.setEnabled(currentPreviewRow < totalRows - 1);
     }
 
+    private String getScriptTabTitle() {
+        return config.isZpl() ? "ZPL Script Viewer" : "TSPL Script Viewer";
+    }
+
     private void updateTsplScript() {
         String script = config.isZpl()
                 ? ZplGenerator.generatePrintJob(products, config)
                 : TsplGenerator.generatePrintJob(products, config);
         tsplTextArea.setText(script);
         tsplTextArea.setCaretPosition(0);
+
+        if (rightTabbedPane != null && rightTabbedPane.getTabCount() > 1) {
+            rightTabbedPane.setTitleAt(1, getScriptTabTitle());
+        }
+        if (copyScriptBtn != null) {
+            copyScriptBtn.setText(config.isZpl() ? "Copy ZPL Code" : "Copy TSPL Code");
+        }
+        if (saveScriptBtn != null) {
+            saveScriptBtn.setText(config.isZpl() ? "Export to .txt / .zpl" : "Export to .txt / .tspl");
+        }
     }
 
     private void updateStats() {
@@ -1235,16 +1360,39 @@ public class MainFrame extends JFrame {
                 totalProducts, totalLabels, totalRows, n, (n > 1 ? "s" : "")));
     }
 
+        private void onCalibrateSensor() {
+        int confirm = JOptionPane.showConfirmDialog(
+                this,
+                "The printer will feed 2-3 labels to automatically calibrate its optical gap sensor.\n\nMake sure the printer cover is closed and paper is loaded.\nProceed with Gap Calibration?",
+                "Auto-Calibrate Printer Gap Sensor",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE
+        );
+
+        if (confirm == JOptionPane.YES_OPTION) {
+            String calibScript;
+            if (config.isZpl()) {
+                calibScript = "^XA\r\n~JC\r\n^JUS\r\n^XZ\r\n"; // ZPL Gap Calibration & Save Config
+            } else {
+                calibScript = "SET RIBBON ON\r\nSET GAP 1\r\nSIZE 104 mm, 25 mm\r\nGAP 3 mm, 0 mm\r\nGAPDETECT 25 mm, 3 mm\r\n"; // TSPL Gap Calibration
+            }
+            executePrint(calibScript, "Sensor Calibration");
+            JOptionPane.showMessageDialog(this, "Calibration command sent to printer.\nIf the printer feeds 2 labels and stops on the gap, calibration is complete!", "Calibration Sent", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
     private void onExportTsplFile() {
+        boolean isZpl = config.isZpl();
         JFileChooser fc = new JFileChooser();
-        fc.setSelectedFile(new File(config.isZpl() ? "barcode_print_job.zpl" : "barcode_print_job.tspl"));
+        fc.setDialogTitle(isZpl ? "Export ZPL Print Job Script" : "Export TSPL Print Job Script");
+        fc.setSelectedFile(new File(isZpl ? "barcode_print_job.zpl" : "barcode_print_job.tspl"));
         int res = fc.showSaveDialog(this);
         if (res == JFileChooser.APPROVE_OPTION) {
             try {
                 FileWriter fw = new FileWriter(fc.getSelectedFile());
                 fw.write(tsplTextArea.getText());
                 fw.close();
-                JOptionPane.showMessageDialog(this, "TSPL script saved successfully to " + fc.getSelectedFile().getName(), "Export Complete", JOptionPane.INFORMATION_MESSAGE);
+                JOptionPane.showMessageDialog(this, (isZpl ? "ZPL" : "TSPL") + " script saved successfully to " + fc.getSelectedFile().getName(), "Export Complete", JOptionPane.INFORMATION_MESSAGE);
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Failed to save file: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
@@ -1425,5 +1573,327 @@ public class MainFrame extends JFrame {
             int b = Math.min(255, (int) (c.getBlue() * factor));
             return new Color(r, g, b);
         }
+    }
+
+    // =========================================================================
+    // Application Icon & System Tray Support
+    // =========================================================================
+
+    private void loadAppIcons() {
+        applyBranding();
+    }
+
+    public void applyBranding() {
+        try {
+            BufferedImage rawImg = null;
+
+            // 1. Try Custom Uploaded Logo from Settings
+            String customPath = SettingsManager.getCustomLogoPath();
+            if (customPath != null && !customPath.isEmpty()) {
+                File customFile = new File(customPath);
+                if (customFile.exists() && customFile.isFile()) {
+                    try {
+                        rawImg = ImageIO.read(customFile);
+                    } catch (Exception e) {
+                        System.err.println("Could not load custom logo file: " + e.getMessage());
+                    }
+                }
+            }
+
+            // 2. Classpath resource default
+            if (rawImg == null) {
+                URL url = getClass().getResource("/resources/susitk.png");
+                if (url == null) {
+                    url = getClass().getResource("/susitk.png");
+                }
+                if (url != null) {
+                    rawImg = ImageIO.read(url);
+                }
+            }
+
+            // 3. File system fallback
+            if (rawImg == null) {
+                File[] searchFiles = new File[] {
+                    new File("custom_logo.png"),
+                    new File("susitk.png"),
+                    new File("src/resources/susitk.png"),
+                    new File("resources/susitk.png"),
+                    new File("E:/Java/BarcodePrinter/susitk.png")
+                };
+                for (File f : searchFiles) {
+                    if (f.exists()) {
+                        rawImg = ImageIO.read(f);
+                        break;
+                    }
+                }
+            }
+
+            if (rawImg != null) {
+                rawImg = trimImagePadding(rawImg);
+                this.loadedAppImage = rawImg;
+                List<Image> iconList = new ArrayList<Image>();
+                iconList.add(rawImg);
+
+                // Multi-resolution square icons for crisp rendering
+                int[] iconSizes = {16, 20, 24, 32, 40, 48, 64, 128, 256};
+                for (int s : iconSizes) {
+                    iconList.add(createSquareIcon(rawImg, s));
+                }
+
+                setIconImages(iconList);
+                setIconImage(createSquareIcon(rawImg, 128));
+
+                // Safe Java 9+ Taskbar icon setup via reflection (Java 8 compatible)
+                try {
+                    Class<?> taskbarClass = Class.forName("java.awt.Taskbar");
+                    Object isSupported = taskbarClass.getMethod("isTaskbarSupported").invoke(null);
+                    if (Boolean.TRUE.equals(isSupported)) {
+                        Object taskbar = taskbarClass.getMethod("getTaskbar").invoke(null);
+                        taskbarClass.getMethod("setIconImage", Image.class).invoke(taskbar, createSquareIcon(rawImg, 128));
+                    }
+                } catch (Throwable ignored) {}
+
+                // Update Toolbar Logo
+                if (toolbarLogoLabel != null) {
+                    int logoH = 32;
+                    int logoW = Math.max(1, (int) Math.round((double) rawImg.getWidth() / rawImg.getHeight() * logoH));
+                    Image scaledLogo = rawImg.getScaledInstance(logoW, logoH, Image.SCALE_SMOOTH);
+                    toolbarLogoLabel.setIcon(new ImageIcon(scaledLogo));
+                    toolbarLogoLabel.revalidate();
+                    toolbarLogoLabel.repaint();
+                }
+
+                // Update Settings Preview
+                if (brandingLogoPreview != null) {
+                    int prevH = 36;
+                    int prevW = Math.max(1, (int) Math.round((double) rawImg.getWidth() / rawImg.getHeight() * prevH));
+                    Image prevScaled = rawImg.getScaledInstance(prevW, prevH, Image.SCALE_SMOOTH);
+                    brandingLogoPreview.setIcon(new ImageIcon(prevScaled));
+                    brandingLogoPreview.setText("");
+                    brandingLogoPreview.revalidate();
+                    brandingLogoPreview.repaint();
+                }
+
+                // Update Tray Icon
+                if (trayIcon != null && SystemTray.isSupported()) {
+                    try {
+                        SystemTray tray = SystemTray.getSystemTray();
+                        Dimension trayDim = tray.getTrayIconSize();
+                        trayIcon.setImage(createSquareIcon(rawImg, Math.max(trayDim.width, 16)));
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            // Update Window Title
+            setTitle(SettingsManager.getAppTitle());
+        } catch (Exception e) {
+            System.err.println("Note: Could not apply branding: " + e.getMessage());
+        }
+    }
+
+    private void onUploadCustomLogo() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Select Store / Client Logo Image");
+        chooser.setFileFilter(new FileNameExtensionFilter("Image Files (*.png, *.jpg, *.jpeg, *.bmp, *.gif)", "png", "jpg", "jpeg", "bmp", "gif"));
+        int res = chooser.showOpenDialog(this);
+        if (res == JFileChooser.APPROVE_OPTION) {
+            File selected = chooser.getSelectedFile();
+            try {
+                BufferedImage testImg = ImageIO.read(selected);
+                if (testImg == null) {
+                    JOptionPane.showMessageDialog(this, "The selected file is not a recognized image format.", "Invalid Image", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                File localLogo = new File("custom_logo.png");
+                ImageIO.write(testImg, "PNG", localLogo);
+
+                SettingsManager.setCustomLogoPath(localLogo.getAbsolutePath());
+                applyBranding();
+
+                JOptionPane.showMessageDialog(this,
+                        "Brand Logo Updated Successfully!\n\nThe new logo is now active across the application window,\ntoolbar header, and system tray.",
+                        "Branding Updated",
+                        JOptionPane.INFORMATION_MESSAGE);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Error setting custom logo: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void onResetDefaultLogo() {
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Are you sure you want to reset to the default factory logo?",
+                "Reset Logo",
+                JOptionPane.YES_NO_OPTION);
+        if (confirm == JOptionPane.YES_OPTION) {
+            SettingsManager.setCustomLogoPath("");
+            File localLogo = new File("custom_logo.png");
+            if (localLogo.exists()) {
+                try { localLogo.delete(); } catch (Exception ignored) {}
+            }
+            applyBranding();
+            JOptionPane.showMessageDialog(this, "Logo restored to default successfully!", "Default Logo Restored", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    /**
+     * Automatically detects and crops empty transparent or solid white borders around logos
+     * so user-uploaded graphics always display centered and large without empty space.
+     */
+    private static BufferedImage trimImagePadding(BufferedImage src) {
+        if (src == null) return null;
+        try {
+            int w = src.getWidth();
+            int h = src.getHeight();
+            int minX = w, minY = h, maxX = 0, maxY = 0;
+
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    int rgb = src.getRGB(x, y);
+                    int alpha = (rgb >> 24) & 0xFF;
+                    int r = (rgb >> 16) & 0xFF;
+                    int g = (rgb >> 8) & 0xFF;
+                    int b = rgb & 0xFF;
+
+                    boolean isBlank = (alpha < 20) || (r >= 242 && g >= 242 && b >= 242);
+                    if (!isBlank) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+
+            if (minX <= maxX && minY <= maxY) {
+                // Add small 2% padding
+                int padX = Math.max(1, (maxX - minX) / 50);
+                int padY = Math.max(1, (maxY - minY) / 50);
+                minX = Math.max(0, minX - padX);
+                minY = Math.max(0, minY - padY);
+                maxX = Math.min(w - 1, maxX + padX);
+                maxY = Math.min(h - 1, maxY + padY);
+
+                int cropW = maxX - minX + 1;
+                int cropH = maxY - minY + 1;
+                if (cropW > 5 && cropH > 5 && (cropW < w || cropH < h)) {
+                    return src.getSubimage(minX, minY, cropW, cropH);
+                }
+            }
+        } catch (Exception ignored) {}
+        return src;
+    }
+
+    /**
+     * Renders the logo onto a square icon canvas preserving perfect aspect ratio
+     * with high-quality antialiasing and bicubic interpolation (no stretching or squishing).
+     */
+    private static BufferedImage createSquareIcon(BufferedImage src, int size) {
+        BufferedImage target = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = target.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        double srcAspect = (double) src.getWidth() / src.getHeight();
+        int drawW, drawH;
+        if (srcAspect >= 1.0) {
+            drawW = size;
+            drawH = Math.max(1, (int) Math.round(size / srcAspect));
+        } else {
+            drawH = size;
+            drawW = Math.max(1, (int) Math.round(size * srcAspect));
+        }
+        int drawX = (size - drawW) / 2;
+        int drawY = (size - drawH) / 2;
+
+        g2.drawImage(src, drawX, drawY, drawW, drawH, null);
+        g2.dispose();
+        return target;
+    }
+
+    private void initSystemTray() {
+        if (!SystemTray.isSupported()) {
+            return;
+        }
+        try {
+            SystemTray tray = SystemTray.getSystemTray();
+
+            PopupMenu popup = new PopupMenu();
+
+            MenuItem openItem = new MenuItem("Open Winpal Printer");
+            openItem.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            openItem.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    restoreFromTray();
+                }
+            });
+
+            MenuItem syncItem = new MenuItem("Sync from API / ERP");
+            syncItem.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            syncItem.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    restoreFromTray();
+                    onLoadFromApi();
+                }
+            });
+
+            MenuItem exitItem = new MenuItem("Exit Application");
+            exitItem.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            exitItem.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    System.exit(0);
+                }
+            });
+
+            popup.add(openItem);
+            popup.add(syncItem);
+            popup.addSeparator();
+            popup.add(exitItem);
+
+            Dimension trayDim = tray.getTrayIconSize();
+            Image trayImage = null;
+            if (loadedAppImage != null) {
+                trayImage = createSquareIcon(loadedAppImage, Math.max(trayDim.width, 16));
+            } else {
+                BufferedImage fallback = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = fallback.createGraphics();
+                g.setColor(new Color(13, 110, 253));
+                g.fillOval(2, 2, 12, 12);
+                g.dispose();
+                trayImage = fallback;
+            }
+
+            trayIcon = new TrayIcon(trayImage, "Winpal Barcode Lable Printer", popup);
+            trayIcon.setImageAutoSize(true);
+
+            trayIcon.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    restoreFromTray();
+                }
+            });
+
+            tray.add(trayIcon);
+        } catch (Exception e) {
+            System.err.println("Note: System Tray could not be initialized: " + e.getMessage());
+        }
+    }
+
+    private void restoreFromTray() {
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                if (!isVisible()) {
+                    setVisible(true);
+                }
+                setExtendedState(JFrame.MAXIMIZED_BOTH);
+                toFront();
+                requestFocus();
+            }
+        });
     }
 }

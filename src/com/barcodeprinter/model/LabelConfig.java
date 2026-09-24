@@ -1,63 +1,117 @@
 package com.barcodeprinter.model;
 
 /**
- * Configuration settings for Winpal thermal label printing and TSPL generation.
- * Supports dynamic labels per row (1-Up Single, 2-Up Dual, 3-Up Triple, etc.)
- * and user-adjustable Left Margin (X) and Top Margin (Y).
+ * Configuration settings for barcode label printing (TSPL & ZPL).
+ * Supports Millimeter (mm) calibration for Left Margin and Top Margin,
+ * dynamic labels per row (1-Up, 2-Up, 3-Up), and multi-client presets.
  */
 public class LabelConfig {
     // Printer Command Language: "TSPL" (Winpal, TSC, 4BARCODE) or "ZPL" (Zebra, ZDesigner)
     private String printerLanguage = "TSPL";
 
     // Label Roll Layout
-    private int labelsPerRow = 2;     // 1 = Single, 2 = Dual (2-Up), 3 = Triple (3-Up), 4 = Quad
+    private int labelsPerRow = 2;          // 1 = Single, 2 = Dual (2-Up), 3 = Triple (3-Up)
 
     // Physical dimensions (in millimeters)
-    private double labelWidthMm = 104.0;    // Total roll width
-    private double labelHeightMm = 25.0;   // Label height
-    private double gapMm = 2.0;            // Vertical gap between rows
-    private double horizontalGapMm = 3.0;  // Horizontal gap between side-by-side labels
+    private double labelWidthMm = 104.0;    // Total roll width in mm
+    private double labelHeightMm = 25.0;   // Label height in mm
+    private double gapMm = 3.0;            // Vertical gap between rows in mm (Standard 3.0mm)
+    private double horizontalGapMm = 2.0;  // Horizontal gap between side-by-side labels in mm
 
     // Printer hardware settings
-    private int dpi = 203;                 // 203 DPI = 8 dots/mm (Standard Winpal/TSC)
+    private int dpi = 203;                 // 203 DPI = 8 dots/mm (Standard Winpal/TSC/Zebra)
     private int printSpeed = 4;             // 2-6 inches per second
     private int darkness = 8;               // 1-15 density level
 
-    // User-adjustable Margin Offsets (in dots at 203 DPI, 8 dots = 1mm)
-    private int leftLabelX = 0;            // Left margin offset (0 = perfectly centered in slot)
-    private int topMarginY = 28;           // Top margin offset (~3.5mm)
-    private int rightLabelX = 435;         // Fallback for legacy 2-up
-
-    // Component Y positions (calculated relative to topMarginY)
-    private int titleY = 28;
-    private int barcodeY = 64;
-    private int footerY = 148;
+    // User-adjustable Margins (in Millimeters - mm)
+    private double leftMarginMm = 7.25;     // Left physical margin offset (7.25mm = 58 dots at 203 DPI)
+    private double topMarginMm = 2.0;      // Top margin offset (3.5mm = 28 dots at 203 DPI)
 
     // Barcode dimensions
-    private int barcodeHeight = 50;
+    private int barcodeHeight = 42;
     private int barcodeNarrow = 2;
     private int barcodeWide = 2;
-    private String barcodeType = "128"; // Code 128
+    private String barcodeType = "128";    // Code 128
 
     // Content Display Options
     private String currencySymbol = "Rs";
     private boolean showPrice = true;
     private boolean showSize = true;
     private boolean showBarcodeText = true;
-
-    // TSPL Fonts
-    private String titleFont = "3";  // TSPL font 3 (Standard readable)
-    private String footerFont = "2"; // TSPL font 2 (Compact readable)
+    private boolean showProductCode = true;
 
     public LabelConfig() {
-        recalculateYPositions();
     }
 
-    public void recalculateYPositions() {
-        this.titleY = this.topMarginY;
-        this.barcodeY = this.topMarginY + 36;
-        int textOffset = this.showBarcodeText ? 30 : 10;
-        this.footerY = this.barcodeY + this.barcodeHeight + textOffset;
+    public int getDotsPerMm() {
+        return (int) Math.round(dpi / 25.4); // 8 dots/mm for 203 DPI
+    }
+
+    // --- Millimeter Margin Accessors ---
+
+    public double getLeftMarginMm() {
+        return leftMarginMm;
+    }
+
+    public void setLeftMarginMm(double leftMarginMm) {
+        this.leftMarginMm = Math.max(0.0, leftMarginMm);
+    }
+
+    public double getTopMarginMm() {
+        return topMarginMm;
+    }
+
+    public void setTopMarginMm(double topMarginMm) {
+        this.topMarginMm = Math.max(0.0, topMarginMm);
+    }
+
+    // --- Dot Conversion Helpers (for TSPL/ZPL & Preview Rendering) ---
+
+        private int rightLabelX = 435;
+
+    public int getRightLabelX() {
+        return rightLabelX;
+    }
+
+    public void setRightLabelX(int rightLabelX) {
+        this.rightLabelX = rightLabelX;
+    }
+    public int getLeftLabelX() {
+        return (int) Math.round(leftMarginMm * getDotsPerMm());
+    }
+
+    public void setLeftLabelX(int dots) {
+        this.leftMarginMm = (double) dots / getDotsPerMm();
+    }
+
+    public int getTopMarginY() {
+        return (int) Math.round(topMarginMm * getDotsPerMm());
+    }
+
+    public void setTopMarginY(int dots) {
+        this.topMarginMm = (double) dots / getDotsPerMm();
+    }
+
+    // --- General Accessors ---
+
+    public String getPrinterLanguage() {
+        return printerLanguage != null ? printerLanguage : "TSPL";
+    }
+
+    public void setPrinterLanguage(String printerLanguage) {
+        if ("ZPL".equalsIgnoreCase(printerLanguage)) {
+            this.printerLanguage = "ZPL";
+        } else {
+            this.printerLanguage = "TSPL";
+        }
+    }
+
+    public boolean isZpl() {
+        return "ZPL".equalsIgnoreCase(printerLanguage);
+    }
+
+    public boolean isTspl() {
+        return !"ZPL".equalsIgnoreCase(printerLanguage);
     }
 
     public int getLabelsPerRow() {
@@ -124,62 +178,12 @@ public class LabelConfig {
         this.darkness = darkness;
     }
 
-    public int getLeftLabelX() {
-        return leftLabelX;
-    }
-
-    public void setLeftLabelX(int leftLabelX) {
-        this.leftLabelX = Math.max(0, leftLabelX);
-    }
-
-    public int getTopMarginY() {
-        return topMarginY;
-    }
-
-    public void setTopMarginY(int topMarginY) {
-        this.topMarginY = Math.max(0, topMarginY);
-        recalculateYPositions();
-    }
-
-    public int getRightLabelX() {
-        return rightLabelX;
-    }
-
-    public void setRightLabelX(int rightLabelX) {
-        this.rightLabelX = rightLabelX;
-    }
-
-    public int getTitleY() {
-        return titleY;
-    }
-
-    public void setTitleY(int titleY) {
-        this.titleY = titleY;
-    }
-
-    public int getBarcodeY() {
-        return barcodeY;
-    }
-
-    public void setBarcodeY(int barcodeY) {
-        this.barcodeY = barcodeY;
-    }
-
-    public int getFooterY() {
-        return footerY;
-    }
-
-    public void setFooterY(int footerY) {
-        this.footerY = footerY;
-    }
-
     public int getBarcodeHeight() {
         return barcodeHeight;
     }
 
     public void setBarcodeHeight(int barcodeHeight) {
         this.barcodeHeight = barcodeHeight;
-        recalculateYPositions();
     }
 
     public int getBarcodeNarrow() {
@@ -206,27 +210,8 @@ public class LabelConfig {
         this.barcodeType = barcodeType;
     }
 
-        public String getPrinterLanguage() {
-        return printerLanguage != null ? printerLanguage : "TSPL";
-    }
-
-    public void setPrinterLanguage(String printerLanguage) {
-        if ("ZPL".equalsIgnoreCase(printerLanguage)) {
-            this.printerLanguage = "ZPL";
-        } else {
-            this.printerLanguage = "TSPL";
-        }
-    }
-
-    public boolean isZpl() {
-        return "ZPL".equalsIgnoreCase(printerLanguage);
-    }
-
-    public boolean isTspl() {
-        return !"ZPL".equalsIgnoreCase(printerLanguage);
-    }
     public String getCurrencySymbol() {
-        return currencySymbol;
+        return currencySymbol != null ? currencySymbol : "Rs";
     }
 
     public void setCurrencySymbol(String currencySymbol) {
@@ -255,22 +240,13 @@ public class LabelConfig {
 
     public void setShowBarcodeText(boolean showBarcodeText) {
         this.showBarcodeText = showBarcodeText;
-        recalculateYPositions();
     }
 
-    public String getTitleFont() {
-        return titleFont;
+    public boolean isShowProductCode() {
+        return showProductCode;
     }
 
-    public void setTitleFont(String titleFont) {
-        this.titleFont = titleFont;
-    }
-
-    public String getFooterFont() {
-        return footerFont;
-    }
-
-    public void setFooterFont(String footerFont) {
-        this.footerFont = footerFont;
+    public void setShowProductCode(boolean showProductCode) {
+        this.showProductCode = showProductCode;
     }
 }
