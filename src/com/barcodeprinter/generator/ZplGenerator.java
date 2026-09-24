@@ -225,13 +225,14 @@ public class ZplGenerator {
 
     /**
      * Exact 3-zone calibrated compact 31mm x 15mm tag layout:
-     * - Row 1 (Top): Barcode on Left (^FO15,10) | Size on Top-Right (^FT190,28)
-     * - Row 2 (Middle): Barcode Digits on Left (^FT15,58) | Full Price [AED 10.00] on Right (^FT{x},58)
-     * - Row 3 (Bottom): Product Code & Name in BOLD spanning across bottom (^FT15,98 ^A0N,18,14)
+     * - Row 1 (Top): Barcode on Left (^FO15,8) | Size on Top-Right (^FT{sizeX},28)
+     * - Row 2 (Middle Left): Crisp Legible Barcode Digits (^FT15,54 ^A0N,18,13)
+     * - Row 2 (Middle-Lower Right): Big Bold Right-Aligned Price (^FT{priceX},66 ^A0N,24,19)
+     * - Row 3 (Bottom): Product Code & Name in BOLD (^FT15,102 ^A0N,18,14)
      */
     private static void appendCompactLabelZpl(StringBuilder sb, Product p, int slotStartX, int slotWidthDots, int totalHeightDots, LabelConfig config, String side) {
         int leftX = slotStartX + 15;
-        int rightMarginX = slotStartX + Math.max(225, slotWidthDots - 15);
+        int rightMarginX = slotStartX + Math.max(228, slotWidthDots - 12);
 
         String barcode = sanitizeText(p.getBarcode());
         String sizeStr = (config.isShowSize() && p.getSize() != null) ? sanitizeText(p.getSize().trim()) : "";
@@ -248,7 +249,7 @@ public class ZplGenerator {
             amtStr = sanitizeText(priceParts[1].isEmpty() ? priceStr : priceParts[1]);
         }
 
-        // Full Price String with Currency (e.g. "AED 10.00" or "Rs. 2,450.00")
+        // Full Price String with Currency (e.g. "AED 45.00" or "Rs. 2,450.00")
         String fullPrice = "";
         if (!amtStr.isEmpty()) {
             fullPrice = currStr.isEmpty() ? amtStr : (currStr + " " + amtStr);
@@ -266,47 +267,48 @@ public class ZplGenerator {
         }
         title = sanitizeText(title);
 
-        // 1. Barcode (Top Left, Y=10, Height=28)
+        // 1. Barcode (Top Left, Y=8, Height=28)
         int bcH = Math.min(28, Math.max(20, config.getBarcodeHeight()));
         if (!barcode.isEmpty()) {
-            sb.append(String.format("^FO%d,10\r\n", leftX));
+            sb.append(String.format("^FO%d,8\r\n", leftX));
             sb.append(String.format("^BY1,30,%d\r\n", bcH));
             sb.append(String.format("^BCN,%d,N,N,N\r\n", bcH));
             sb.append(String.format("^FD%s^FS\r\n\r\n", barcode));
         }
 
-        // 2. Size (Top Right, aligned with Barcode, Y=28)
+        // 2. Size (Top Right, Y=28)
         if (!sizeStr.isEmpty()) {
-            int sizeWidth = sizeStr.length() * 15;
-            int sizeX = Math.max(slotStartX + 170, rightMarginX - sizeWidth);
+            int sizeWidth = sizeStr.length() * 16;
+            int sizeX = Math.max(slotStartX + 175, rightMarginX - sizeWidth);
             sb.append(String.format("^FT%d,28\r\n", sizeX));
             sb.append("^A0N,22,18\r\n");
             sb.append(String.format("^FD%s^FS\r\n\r\n", sizeStr));
         }
 
-        // 3. Barcode Digits (Middle Left, directly under barcode, Y=58)
+        // 3. Barcode Digits (Middle Left, crisp & bold font ^A0N,18,13, Y=54)
         if (config.isShowBarcodeText() && !barcode.isEmpty()) {
-            sb.append(String.format("^FT%d,58\r\n", leftX));
-            sb.append("^A0N,15,12\r\n");
+            sb.append(String.format("^FT%d,54\r\n", leftX));
+            sb.append("^A0N,18,13\r\n");
             sb.append(String.format("^FD%s^FS\r\n\r\n", barcode));
         }
 
-        // 4. Combined Price with Currency (Middle Right, under Size, Y=58)
+        // 4. Large Bold Price (Lowered to Y=66 and right-aligned to right margin)
         if (!fullPrice.isEmpty()) {
-            int priceWidth = fullPrice.length() * 12;
-            int priceX = Math.max(slotStartX + 115, rightMarginX - priceWidth);
-            sb.append(String.format("^FT%d,58\r\n", priceX));
-            sb.append("^A0N,22,18\r\n");
+            int charW = 15; // Width per char in font ^A0N,24,19
+            int priceWidth = fullPrice.length() * charW;
+            int priceX = Math.max(slotStartX + 85, rightMarginX - priceWidth);
+            sb.append(String.format("^FT%d,66\r\n", priceX));
+            sb.append("^A0N,24,19\r\n");
             sb.append(String.format("^FD%s^FS\r\n\r\n", fullPrice));
         }
 
-        // 5. Product Title / Code (Bottom Row - Bold font ^A0N,18,14 across full width, Y=98)
+        // 5. Product Title / Code (Bottom Row - Bold font ^A0N,18,14 across full width, Y=102)
         if (!title.isEmpty()) {
             int maxChars = Math.max(16, (slotWidthDots - 25) / 11);
             if (title.length() > maxChars) {
                 title = title.substring(0, maxChars - 2) + "..";
             }
-            sb.append(String.format("^FT%d,98\r\n", leftX));
+            sb.append(String.format("^FT%d,102\r\n", leftX));
             sb.append("^A0N,18,14\r\n");
             sb.append(String.format("^FD%s^FS\r\n\r\n", title));
         }

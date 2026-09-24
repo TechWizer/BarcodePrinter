@@ -284,11 +284,11 @@ public class LabelPreviewPanel extends JPanel {
         }
 
         int leftX = x + (int) (15 * sx);
-        int rightMarginX = x + w - (int) (15 * sx);
+        int rightMarginX = x + w - (int) (12 * sx);
 
-        // 1. Barcode (Top Left, Y=10..38)
+        // 1. Barcode (Top Left, Y=8..36)
         if (!barcode.isEmpty()) {
-            int bcY = y + (int) (10 * sy);
+            int bcY = y + (int) (8 * sy);
             int bcW = (int) (155 * sx);
             int bcH = (int) (28 * sy);
             drawBarcodeSimulation(g2, leftX, bcY, bcW, bcH, barcode);
@@ -297,37 +297,37 @@ public class LabelPreviewPanel extends JPanel {
         // 2. Size (Top Right, aligned with Barcode, Y=28)
         if (!sizeStr.isEmpty()) {
             g2.setColor(new Color(30, 41, 59));
-            g2.setFont(new Font("Segoe UI", Font.BOLD, (int) Math.max(10, 20 * sy)));
+            g2.setFont(new Font("Segoe UI", Font.BOLD, (int) Math.max(10, 22 * sy)));
             FontMetrics fmSize = g2.getFontMetrics();
             int sizeX = rightMarginX - fmSize.stringWidth(sizeStr);
             int sizeY = y + (int) (28 * sy);
             g2.drawString(sizeStr, sizeX, sizeY);
         }
 
-        // 3. Barcode Digits (Middle Left, directly under barcode, Y=58)
+        // 3. Barcode Digits (Middle Left, clear bold font, Y=54)
         if (config.isShowBarcodeText() && !barcode.isEmpty()) {
-            g2.setColor(new Color(30, 41, 59));
-            g2.setFont(new Font("Monospaced", Font.BOLD, (int) Math.max(9, 13 * sy)));
-            int numY = y + (int) (58 * sy);
+            g2.setColor(new Color(20, 25, 35));
+            g2.setFont(new Font("Monospaced", Font.BOLD, (int) Math.max(10, 16 * sy)));
+            int numY = y + (int) (54 * sy);
             g2.drawString(barcode, leftX, numY);
         }
 
-        // 4. Combined Price with Currency (Middle Right, under Size, Y=58)
+        // 4. Combined Price with Currency (Lowered to Y=66, right-aligned)
         if (!fullPrice.isEmpty()) {
             g2.setColor(Color.BLACK);
-            g2.setFont(new Font("Segoe UI", Font.BOLD, (int) Math.max(11, 20 * sy)));
+            g2.setFont(new Font("Segoe UI", Font.BOLD, (int) Math.max(12, 22 * sy)));
             FontMetrics fmPrice = g2.getFontMetrics();
             int priceX = rightMarginX - fmPrice.stringWidth(fullPrice);
-            int priceY = y + (int) (58 * sy);
+            int priceY = y + (int) (66 * sy);
             g2.drawString(fullPrice, priceX, priceY);
         }
 
-        // 5. Product Title / Code (Bottom Row - Bold font across full width, Y=98)
+        // 5. Product Title / Code (Bottom Row - Bold font across full width, Y=102)
         if (!title.isEmpty()) {
             g2.setColor(new Color(15, 23, 42));
             g2.setFont(new Font("Segoe UI", Font.BOLD, (int) Math.max(9, 14 * sy)));
             FontMetrics fmTitle = g2.getFontMetrics();
-            int maxW = w - (int) (30 * sx);
+            int maxW = w - (int) (24 * sx);
             String displayTitle = title;
             if (fmTitle.stringWidth(displayTitle) > maxW) {
                 while (displayTitle.length() > 5 && fmTitle.stringWidth(displayTitle + "...") > maxW) {
@@ -335,7 +335,7 @@ public class LabelPreviewPanel extends JPanel {
                 }
                 displayTitle = displayTitle + "...";
             }
-            int titleY = y + (int) (98 * sy);
+            int titleY = y + (int) (102 * sy);
             g2.drawString(displayTitle, leftX, titleY);
         }
     }
